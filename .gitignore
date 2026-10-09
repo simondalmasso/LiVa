@@ -12,3 +12,8 @@ dist/
 
 # logs
 *.log
+
+# Local audit artifacts
+*.bak.*
+test-results/
+playwright-report/
