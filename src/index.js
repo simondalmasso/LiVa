@@ -1,49 +1,77 @@
 /**
- * LiVa v4.1.0-RECONSTRUCTION — Cloudflare Worker (Edge Runtime)
- * Author: Simón Dalmasso
- *
- * 8 mandatory features:
- *  1) Zero-latency zapping pool (3 iframes)         [frontend]
- *  2) Touch shield anti-bounce                       [frontend]
- *  3) YouTube embed restriction bypass (mute+autoplay, embeddable filter) [here + frontend]
- *  4) Twitch OAuth auto-refresher                    [here]
- *  5) Shorta pseudo-live simulator                   [here]
- *  6) Algorithmic feed shuffle + interleave 3:1      [here]
- *  7) Geo location edge injection (request.cf)       [here]
- *  8) Pluto TV dedicated hub                         [here]
+ * LiVa Cloudflare Worker — locally audited release candidate.
+ * Single visible official player, cached public catalogue, zero KV.
+ * Rights review and live audiovisual validation remain release gates.
  */
 
 import { FRONTEND_HTML } from './frontend.js';
-import {
-  fetchTwitchStreams,
-  ensureTwitchToken,
-} from './twitch.js';
+import { fetchTwitchStreams } from './twitch.js';
 import { fetchYouTubeStreams } from './youtube.js';
 import { fetchPlutoChannels } from './pluto.js';
-import {
-  fisherYatesShuffle,
-  interleaveShorta,
-  injectGeoChannels,
-  fetchShortaPlaylist,
-} from './aggregator.js';
+import { orderLiveFeed } from './aggregator.js';
+
+const RESPONSE_SECURITY_HEADERS = {
+  'x-content-type-options': 'nosniff',
+  'referrer-policy': 'strict-origin-when-cross-origin',
+  'x-frame-options': 'DENY',
+  'strict-transport-security': 'max-age=31536000',
+  'permissions-policy': 'camera=(), microphone=(), geolocation=()',
+};
+
+let contentSecurityPolicyPromise = null;
+function getContentSecurityPolicy() {
+  if (!contentSecurityPolicyPromise) {
+    contentSecurityPolicyPromise = (async () => {
+      const start = FRONTEND_HTML.indexOf('<script>');
+      const end = FRONTEND_HTML.indexOf('</script>', start);
+      if (start < 0 || end < 0) throw new Error('Missing first-party inline script');
+      const bytes = new TextEncoder().encode(FRONTEND_HTML.slice(start + 8, end));
+      const digest = await crypto.subtle.digest('SHA-256', bytes);
+      const hash = btoa(String.fromCharCode(...new Uint8Array(digest)));
+      return [
+        "default-src 'none'",
+        "base-uri 'self'",
+        "object-src 'none'",
+        "frame-ancestors 'none'",
+        "form-action 'self'",
+        "script-src 'sha256-" + hash + "'",
+        "style-src 'self' 'unsafe-inline'",
+        "connect-src 'self'",
+        "img-src 'self' data: https://i.ytimg.com https://static-cdn.jtvnw.net",
+        "frame-src https://www.youtube.com https://player.twitch.tv",
+        "upgrade-insecure-requests"
+      ].join('; ');
+    })();
+  }
+  return contentSecurityPolicyPromise;
+}
 
 // In-memory token cache (per-isolate)
 let twitchTokenCache = { token: null, expiresAt: 0 };
 
 export default {
-  async fetch(request, env, ctx) {
+  async fetch(request, env) {
     const url = new URL(request.url);
     const cf = request.cf || {};
 
     // --- Routing ---
     if (url.pathname === '/' || url.pathname === '/index.html') {
       return new Response(FRONTEND_HTML, {
-        headers: { 'content-type': 'text/html;charset=utf-8' },
+        headers: { ...RESPONSE_SECURITY_HEADERS, 'content-security-policy': await getContentSecurityPolicy(), 'content-type': 'text/html;charset=utf-8', 'cache-control': 'public, max-age=300' },
       });
     }
 
     if (url.pathname === '/api/streams') {
-      return handleStreams(request, env, ctx, cf);
+      if (request.method !== 'GET') {
+        return new Response('Method Not Allowed', {
+          status: 405,
+          headers: { ...RESPONSE_SECURITY_HEADERS, 'allow': 'GET', 'cache-control': 'no-store' },
+        });
+      }
+      if (url.search) {
+        return Response.redirect(new URL('/api/streams', url).toString(), 308);
+      }
+      return handleStreams(request, env);
     }
 
     if (url.pathname === '/api/pluto') {
@@ -59,60 +87,64 @@ export default {
       });
     }
 
-    return new Response('Not Found', { status: 404 });
+    return new Response('Not Found', { status: 404, headers: RESPONSE_SECURITY_HEADERS });
   },
 };
 
 // ---------------- /api/streams ----------------
-async function handleStreams(request, env, ctx, cf) {
-  try {
-    const cacheKey = new URL(request.url);
-    cacheKey.pathname = '/api/streams';
-    const cache = caches.default;
-    const cached = await cache.match(cacheKey);
-    if (cached) return cached;
-
-    // Parallel fan-out
-    const [twitchStreams, ytStreams, shortaPlaylist] = await Promise.allSettled([
-      fetchTwitchStreams(env, () => ensureTwitchToken(env, twitchTokenCache)),
+// Public catalogue without personal geo metadata; query variants redirect.
+let catalogueInFlight = null;
+async function loadCatalogue(cacheKey, env) {
+  const cache = caches.default;
+  const cached = await cache.match(cacheKey);
+  if (cached) {
+    try { return await cached.json(); } catch (_) { /* rebuild corrupt entry */ }
+  }
+  if (catalogueInFlight) return catalogueInFlight;
+  const pending = (async () => {
+    const [twitchResult, youtubeResult] = await Promise.allSettled([
+      fetchTwitchStreams(env, twitchTokenCache),
       fetchYouTubeStreams(env),
-      fetchShortaPlaylist(env),
     ]);
+    const twitch = twitchResult.status === 'fulfilled' ? twitchResult.value : [];
+    const youtube = youtubeResult.status === 'fulfilled' ? youtubeResult.value : [];
+    const streams = orderLiveFeed(youtube, twitch);
+    const catalogue = { generated_at: Date.now(), streams };
+    const ttl = streams.length ? 3600 : 300;
+    const response = new Response(JSON.stringify(catalogue), {
+      headers: { 'content-type': 'application/json;charset=utf-8',
+                 'cache-control': `public, max-age=${ttl}, s-maxage=${ttl}` },
+    });
+    // Do not release the single-flight guard until this cache write finishes.
+    // Otherwise a second request can miss cache and duplicate provider calls.
+    try { await cache.put(cacheKey, response.clone()); } catch (_) { /* serve fresh data anyway */ }
+    return catalogue;
+  })();
+  catalogueInFlight = pending;
+  try { return await pending; }
+  finally { if (catalogueInFlight === pending) catalogueInFlight = null; }
+}
 
-    const twitch = twitchStreams.status === 'fulfilled' ? twitchStreams.value : [];
-    const yt = ytStreams.status === 'fulfilled' ? ytStreams.value : [];
-    const shorta = shortaPlaylist.status === 'fulfilled' ? shortaPlaylist.value : [];
-
-    // Combine real streams
-    const real = [...twitch, ...yt];
-
-    // 6) Fisher-Yates strict shuffle (server-side, ONE pass)
-    const shuffledReal = fisherYatesShuffle(real);
-
-    // 6) Interleave 3:1 (real : shorta)
-    const interleaved = interleaveShorta(shuffledReal, shorta);
-
-    // 7) Geo injection — Santa Fe / SF gets local channels prepended
-    const finalFeed = injectGeoChannels(interleaved, cf);
-
+async function handleStreams(request, env) {
+  try {
+    const catalogUrl = new URL('/__liva/catalogue/argentina-verified-v1', request.url);
+    const catalogue = await loadCatalogue(new Request(catalogUrl), env);
+    const streams = catalogue.streams;
     const payload = {
       ok: true,
-      generated_at: Date.now(),
-      geo: { city: cf.city, regionCode: cf.regionCode, country: cf.country },
-      count: finalFeed.length,
-      streams: finalFeed,
+      generated_at: catalogue.generated_at,
+      count: streams.length,
+      streams,
     };
-
-    const response = new Response(JSON.stringify(payload), {
+    return new Response(JSON.stringify(payload), {
       headers: {
+        ...RESPONSE_SECURITY_HEADERS,
         'content-type': 'application/json;charset=utf-8',
-        'cache-control': 'public, max-age=60, s-maxage=60',
+        'cache-control': 'public, max-age=300',
       },
     });
-    ctx.waitUntil(cache.put(cacheKey, response.clone()));
-    return response;
-  } catch (err) {
-    return jsonResponse({ ok: false, error: String(err && err.message || err) }, 500);
+  } catch (_) {
+    return jsonResponse({ ok: false, error: 'catalog_unavailable' }, 503);
   }
 }
 
@@ -133,6 +165,6 @@ async function handlePluto(env) {
 function jsonResponse(obj, status = 200) {
   return new Response(JSON.stringify(obj), {
     status,
-    headers: { 'content-type': 'application/json;charset=utf-8' },
+    headers: { ...RESPONSE_SECURITY_HEADERS, 'content-type': 'application/json;charset=utf-8', 'cache-control': 'no-store' },
   });
 }

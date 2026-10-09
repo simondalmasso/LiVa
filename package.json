@@ -2,17 +2,20 @@
   "name": "liva",
   "version": "4.1.0-reconstruction",
   "private": true,
-  "description": "LiVa — Zero-latency zapping aggregator (Cloudflare Worker)",
+  "description": "LiVa — fast legal live-stream discovery and vertical zapping on Cloudflare Workers",
   "author": "Simón Dalmasso",
   "main": "src/index.js",
   "type": "module",
   "scripts": {
     "build": "esbuild src/index.js --bundle --format=esm --platform=browser --outfile=dist/worker.mjs --target=es2022",
     "deploy": "npm run build && wrangler deploy",
-    "dev": "wrangler dev"
+    "dev": "wrangler dev",
+    "test:unit": "node --test test/cache-concurrency.test.js test/empty-cache.test.js test/feed-order.test.js test/geo-cache.test.js test/liva-regressions.test.js test/security-headers.test.js test/stream-budget.test.js test/twitch-oauth.test.js test/youtube-ingestion.test.js",
+    "test:e2e": "playwright test test/liva-browser.spec.js --workers=1"
   },
   "devDependencies": {
-    "esbuild": "^0.23.0",
-    "wrangler": "^4.0.0"
+    "@playwright/test": "^1.56.1",
+    "esbuild": "^0.28.2",
+    "wrangler": "^4.149.0"
   }
 }
