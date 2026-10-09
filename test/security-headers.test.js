@@ -26,3 +26,12 @@ test('Content Security Policy pins the exact inline script hash and official emb
   assert.match(csp,/object-src 'none'/);
   assert.doesNotMatch(csp,/script-src[^;]*'unsafe-inline'/);
 });
+
+test('health endpoint reports the deployed PROJECT_VERSION binding',async()=>{
+  const res=await worker.fetch(new Request('https://liva.example/api/health'),{
+    PROJECT_VERSION:'4.2.0-LIVE-ARGENTINA'
+  },{});
+  assert.equal(res.status,200);
+  const health=await res.json();
+  assert.equal(health.version,'4.2.0-LIVE-ARGENTINA');
+});
