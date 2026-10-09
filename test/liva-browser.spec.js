@@ -123,7 +123,7 @@ test('YouTube direct playback is muted autoplay only when visible; stops in back
     await expect(page.locator('#stream-channel')).toHaveText('martinciriook');
     await page.locator('#zap-up').click();
     await expect(page.locator('#stream-channel')).toHaveText('OLGA');
-    expect(getFeedCalls()).toBe(1);
+    expect(interceptedRequests).toBe(1);
   }finally{await browser.close();}
 });
 
@@ -412,12 +412,16 @@ test('568x320 landscape leaves the official player unobstructed by metadata or a
 });
 
 test('when no Argentine lives are verified, manual official publisher links replace blank feed without new requests',async()=>{
-  const {browser,page,getFeedCalls}=await launch(390,844);
+  const {browser,page}=await launch(390,844);
+  let interceptedRequests=0;
   try{
-    await page.route('**/api/streams',route=>route.fulfill({
-      status:200,contentType:'application/json',
-      body:JSON.stringify({ok:true,generated_at:Date.now(),streams:[]})
-    }));
+    await page.route('**/api/streams',route=>{
+      interceptedRequests++;
+      return route.fulfill({
+        status:200,contentType:'application/json',
+        body:JSON.stringify({ok:true,generated_at:Date.now(),streams:[]})
+      });
+    });
     await page.reload();
     await expect(page.locator('#official-publishers a')).toHaveCount(5);
     await expect(page.locator('#official-publishers')).toContainText('OLGA');
@@ -427,6 +431,6 @@ test('when no Argentine lives are verified, manual official publisher links repl
     await expect(page.locator('#official-publishers')).toContainText('Crónica');
     await expect(page.locator('#official-publishers a').first()).toHaveAttribute('href',/youtube\.com\/\@/);
     await expect(page.locator('iframe')).toHaveCount(0);
-    expect(getFeedCalls()).toBe(1);
+    expect(interceptedRequests).toBe(1);
   }finally{await browser.close();}
 });
