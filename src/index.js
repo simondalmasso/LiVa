@@ -81,7 +81,7 @@ export default {
     if (url.pathname === '/api/health') {
       return jsonResponse({
         ok: true,
-        version: '4.1.0-RECONSTRUCTION',
+        version: env.PROJECT_VERSION || 'unversioned',
         time: new Date().toISOString(),
         cf: { city: cf.city, regionCode: cf.regionCode, country: cf.country },
       });
