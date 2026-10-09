@@ -123,7 +123,7 @@ test('YouTube direct playback is muted autoplay only when visible; stops in back
     await expect(page.locator('#stream-channel')).toHaveText('martinciriook');
     await page.locator('#zap-up').click();
     await expect(page.locator('#stream-channel')).toHaveText('OLGA');
-    expect(interceptedRequests).toBe(1);
+    expect(getFeedCalls()).toBe(1);
   }finally{await browser.close();}
 });
 
