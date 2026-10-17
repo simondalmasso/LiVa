@@ -48,7 +48,7 @@ test('zero KV: 30 visitors share one edge cache refresh, no per-visit provider f
   assert.equal(storage.size,1);
   assert.ok([...storage.keys()][0].includes('/__liva/catalogue/argentina-verified-v1'));
   const stored = [...storage.values()][0];
-  assert.match(stored.headers.get('cache-control'),/max-age=3600/);
+  assert.match(stored.headers.get('cache-control'),/max-age=900/);
 });
 test('swipes do not invoke Worker routes or KV; frontend references API only from initial load', async()=>{
   const {FRONTEND_HTML}=await import('../src/frontend.js');

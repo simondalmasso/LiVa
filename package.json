@@ -1,8 +1,8 @@
 {
   "name": "liva",
-  "version": "4.1.0-reconstruction",
+  "version": "4.2.1",
   "private": true,
-  "description": "LiVa — fast legal live-stream discovery and vertical zapping on Cloudflare Workers",
+  "description": "LiVa - vertical discovery and zapping of Argentine live streams with official YouTube and Twitch embeds; no video relay or Workers KV.",
   "author": "Simón Dalmasso",
   "main": "src/index.js",
   "type": "module",

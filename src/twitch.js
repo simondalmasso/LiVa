@@ -61,6 +61,7 @@ async function helixStreams(env, cache, retry = true, signal = AbortSignal.timeo
 
 export async function fetchTwitchStreams(env, tokenCache) {
   const rows = await helixStreams(env, tokenCache, true, AbortSignal.timeout(8000));
+  const verifiedAt = Date.now();
   const seen = new Set();
   return rows.filter(s => {
     if (!s.id || !TARGET_LOGINS.has(String(s.user_login || '').toLowerCase())
@@ -76,6 +77,7 @@ export async function fetchTwitchStreams(env, tokenCache) {
     embed_url: 'https://player.twitch.tv/?channel=' + encodeURIComponent(s.user_login) +
       '&parent=liva.simondalmasso44.workers.dev&muted=true&autoplay=true',
     thumbnail: s.thumbnail_url?.replace('{width}', '640').replace('{height}', '360'),
-    is_live: true
+    is_live: true,
+    verified_at: verifiedAt
   }));
 }

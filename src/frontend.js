@@ -17,7 +17,7 @@ export const FRONTEND_HTML = `<!DOCTYPE html>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <meta name="theme-color" content="#0a0a0a" />
-<title>LiVa — Zapping sin latencia</title>
+<title>LiVa — Zapping de streams en vivo</title>
 <style>
 ${UTILITY_CSS}
   html, body { background:#000; color:#fff; margin:0; height:100%; overflow:hidden; overscroll-behavior:none; -webkit-tap-highlight-color:transparent; color-scheme:dark; }
@@ -38,7 +38,7 @@ ${UTILITY_CSS}
   .player-fallback { z-index:2; position:relative; max-width:360px; padding:18px; background:#151515; border-radius:12px; text-align:center; color:#fff; }
   .player-fallback a { color:#fff; text-decoration:underline; display:block; padding-top:12px; }
   #stream-open { pointer-events:auto; display:inline-block; margin-top:10px; font-size:12px; color:#fff; text-decoration:underline; text-underline-offset:3px; }
-  .pluto-card { color:inherit; text-decoration:none; display:block; }
+  .pluto-card { color:inherit; text-decoration:none; display:flex; flex-direction:column; justify-content:center; gap:6px; min-height:96px; padding:18px; }
   .pluto-card:focus-visible, .manual-media-link:focus-visible, button:focus-visible, .player-fallback a:focus-visible { outline:3px solid #8ab4f8; outline-offset:3px; }
   .manual-media-link { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:20px; padding:18px; background:#161616; border:1px solid #303030; border-radius:12px; color:#fff; text-decoration:none; }
   .manual-media-link:hover { background:#222; }
@@ -70,11 +70,9 @@ ${UTILITY_CSS}
   .snap-container::-webkit-scrollbar { display:none; }
   .snap-item { scroll-snap-align:start; height:100dvh; position:relative; box-sizing:border-box; display:flex; align-items:center; justify-content:center; padding:70px 0 140px; overflow:hidden; }
   .pluto-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap:10px; }
-  .pluto-card { aspect-ratio: 16/9; background:#1a1a1a; border-radius:8px; overflow:hidden; cursor:pointer; position:relative; }
-  .pluto-card img { width:100%; height:100%; object-fit:cover; }
-  .pluto-card .pluto-label { position:absolute; bottom:0; left:0; right:0; padding:8px; background:linear-gradient(to top, rgba(0,0,0,.8), transparent); font-size:12px; }
-  .loading-spinner { width:32px; height:32px; border:3px solid rgba(255,255,255,.1); border-top-color:#fff; border-radius:50%; animation: spin .8s linear infinite; }
-  @keyframes spin { to { transform: rotate(360deg); } }
+  .pluto-card { aspect-ratio:auto; background:#1a1a1a; border:1px solid #303030; border-radius:12px; overflow:hidden; cursor:pointer; position:relative; }
+  .pluto-card .pluto-label { font-size:14px; font-weight:700; }
+  .pluto-card .pluto-description { font-size:12px; color:rgba(255,255,255,.6); }
   .pulse-dot { width:8px; height:8px; background:#ff3b3b; border-radius:50%; animation: pulse 1.5s ease-in-out infinite; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
   @media (max-height:700px) and (orientation:portrait) {
@@ -126,7 +124,10 @@ ${UTILITY_CSS}
       <p class="text-xs text-white/50">Explorá Pluto TV en su sitio oficial.</p>
     </div>
     <div id="pluto-grid" class="pluto-grid">
-      <div class="col-span-full flex justify-center py-10"><div class="loading-spinner"></div></div>
+      <a id="pluto-official-link" class="pluto-card" href="https://pluto.tv/" target="_blank" rel="noopener noreferrer" aria-label="Abrir Pluto TV en el sitio oficial">
+        <span class="pluto-label">Pluto TV</span>
+        <span class="pluto-description">Explorá canales y programación en el sitio oficial ↗</span>
+      </a>
     </div>
   </div>
 </div>
@@ -167,7 +168,7 @@ ${UTILITY_CSS}
 
 <script>
 // =====================================================
-// LiVa Frontend Engine v4.1
+// LiVa Frontend Engine
 // =====================================================
 
 const OFFICIAL_PUBLISHERS = ${JSON.stringify(CHANNELS.map(({name,handle})=>({name,href:'https://www.youtube.com/@'+handle+'/live'})))};
@@ -180,7 +181,6 @@ const State = {
 };
 
 const feedView = document.getElementById('view-feed');
-const streamInfo = document.getElementById('stream-info');
 const streamTitle = document.getElementById('stream-title');
 const streamChannel = document.getElementById('stream-channel');
 const streamSource = document.getElementById('stream-source');
@@ -352,9 +352,9 @@ function updateCatalogueAge(timestamp) {
     : 'Verificado hace ' + minutes + ' min';
 }
 function updateStreamInfo(idx) {
-  updateCatalogueAge(State.catalogueTime);
   const s = State.streams[idx];
   if (!s) return;
+  updateCatalogueAge(s.verified_at || State.catalogueTime);
   streamTitle.textContent = s.title || '';
   streamChannel.textContent = s.channel || '';
   document.getElementById('stream-open').href = officialStreamUrl(s);
@@ -450,6 +450,30 @@ function appendOfficialPublishers(panel) {
   panel.append(title, directory);
 }
 
+function showFeedFallback(message) {
+  snapObserver.disconnect();
+  stopActivePlayer();
+  State.streams = [];
+  State.currentIndex = -1;
+  State.catalogueTime = 0;
+  feedView.replaceChildren();
+
+  const panel = document.createElement('div');
+  panel.className = 'flex flex-col items-center justify-center h-screen text-white/60 text-sm gap-2';
+  const msg = document.createElement('p');
+  msg.textContent = message;
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.textContent = 'Reintentar';
+  button.className = 'mt-3 px-4 py-2 bg-white/10 rounded-full text-xs';
+  button.addEventListener('click', loadFeed);
+  panel.append(msg, button);
+  appendOfficialPublishers(panel);
+  feedView.appendChild(panel);
+  document.getElementById('stream-info').style.display = 'none';
+  document.getElementById('zap-controls').style.display = 'none';
+}
+
 async function loadFeed() {
   if (State.isLoading) return;
   State.isLoading = true;
@@ -461,22 +485,7 @@ async function loadFeed() {
       item && item.is_live === true && (item.source === 'youtube' || item.source === 'twitch'));
     State.catalogueTime = Number(data.generated_at) || 0;
     if (State.streams.length === 0) {
-      stopActivePlayer();
-      feedView.replaceChildren();
-      const panel = document.createElement('div');
-      panel.className = 'flex flex-col items-center justify-center h-screen text-white/60 text-sm gap-2';
-      const msg = document.createElement('p');
-      msg.textContent = 'No se encontraron transmisiones verificadas ahora.';
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.textContent = 'Reintentar';
-      button.className = 'mt-3 px-4 py-2 bg-white/10 rounded-full text-xs';
-      button.addEventListener('click', loadFeed);
-      panel.append(msg, button);
-      appendOfficialPublishers(panel);
-      feedView.appendChild(panel);
-      document.getElementById('stream-info').style.display = 'none';
-      document.getElementById('zap-controls').style.display = 'none';
+      showFeedFallback('No se encontraron transmisiones verificadas ahora.');
       return;
     }
     const isLiveVisible = !feedView.classList.contains('hidden');
@@ -486,62 +495,9 @@ async function loadFeed() {
     // Observe all snaps
     Array.from(feedView.children).forEach(c => snapObserver.observe(c));
   } catch (e) {
-    stopActivePlayer();
-    feedView.replaceChildren();
-    const panel = document.createElement('div');
-    panel.className = 'flex flex-col items-center justify-center h-screen text-white/60 text-sm gap-2';
-    const msg = document.createElement('p');
-    msg.textContent = 'Error al cargar el feed.';
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.textContent = 'Reintentar';
-    button.className = 'mt-3 px-4 py-2 bg-white/10 rounded-full text-xs';
-    button.addEventListener('click', loadFeed);
-    panel.append(msg, button);
-    appendOfficialPublishers(panel);
-    feedView.appendChild(panel);
-    document.getElementById('stream-info').style.display = 'none';
-    document.getElementById('zap-controls').style.display = 'none';
+    showFeedFallback('Error al cargar el feed.');
   } finally {
     State.isLoading = false;
-  }
-}
-
-// =====================================================
-// PLUTO TV HUB (Feature #8)
-// =====================================================
-async function loadPluto() {
-  const grid = document.getElementById('pluto-grid');
-  try {
-    const resp = await fetch('/api/pluto');
-    if (!resp.ok) throw new Error('Pluto no disponible');
-    const data = await resp.json();
-    if (!data.ok) throw new Error('Pluto no disponible');
-    grid.replaceChildren();
-    (data.channels || []).forEach(ch => {
-      const url = new URL(ch.external_url);
-      if (url.protocol !== 'https:' || !['pluto.tv','www.pluto.tv'].includes(url.hostname)) return;
-      const card = document.createElement('a');
-      card.className = 'pluto-card';
-      card.href = url.href;
-      card.target = '_blank';
-      card.rel = 'noopener noreferrer';
-      card.style.padding = '20px';
-      const channelLabel = document.createElement('div');
-      channelLabel.textContent = ch.channel || 'Pluto TV';
-      channelLabel.className = 'font-semibold text-sm';
-      const title = document.createElement('div');
-      title.textContent = ch.title || 'Abrir sitio oficial';
-      title.className = 'text-xs text-white/60';
-      card.append(channelLabel, title);
-      grid.appendChild(card);
-    });
-    if (!grid.children.length) throw new Error('No se encontró un enlace oficial.');
-  } catch (e) {
-    grid.replaceChildren();
-    const msg = document.createElement('p');
-    msg.textContent = 'No se pudo cargar el directorio de Pluto TV.';
-    grid.appendChild(msg);
   }
 }
 
@@ -564,10 +520,6 @@ function activateTab(selected) {
     stopActivePlayer();
   } else if (State.streams.length > 0) {
     onSnapActivate(Math.max(0, State.currentIndex));
-  }
-  if (selected === 'pluto' && !document.getElementById('pluto-grid').dataset.loaded) {
-    document.getElementById('pluto-grid').dataset.loaded = '1';
-    loadPluto();
   }
 }
 for (const id of tabIds) {

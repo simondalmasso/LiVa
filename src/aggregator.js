@@ -1,25 +1,8 @@
 /**
- * Live-only deterministic catalogue ordering.
- * Channel names are an editorial hint, NOT verified broadcaster identities.
- * Exact YouTube channel IDs must be verified separately before identity claims.
+ * Deterministic live-only ordering.
+ * YouTube ingestion validates the exact curated publisher IDs; this layer only
+ * normalizes source eligibility, removes duplicates and orders the feed.
  */
-const ARGENTINE_CHANNEL_NAMES = new Set([
-  'olga', 'luzu', 'luzu tv', 'blender',
-  'tn', 'tn todo noticias', 'todo noticias',
-  'cronica', 'cronica tv', 'a24', 'c5n',
-  'telefe noticias', 'canal 26', 'gelatina'
-]);
-
-function normalizedName(name) {
-  return String(name || '').toLocaleLowerCase('es-AR')
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .replace(/\s+/g, ' ').trim();
-}
-
-function isArgentineNameMatch(name) {
-  return ARGENTINE_CHANNEL_NAMES.has(normalizedName(name));
-}
-
 export function orderLiveFeed(youtubeStreams = [], twitchStreams = []) {
   const live = [...youtubeStreams, ...twitchStreams].filter(stream =>
     stream && stream.is_live === true
@@ -33,8 +16,7 @@ export function orderLiveFeed(youtubeStreams = [], twitchStreams = []) {
     seen.add(key);
     return true;
   });
-  const priority = item => item.source === 'youtube'
-    ? (isArgentineNameMatch(item.channel) ? 0 : 1) : 2;
+  const priority = item => item.source === 'youtube' ? 0 : 1;
   unique.sort((a, b) =>
     priority(a) - priority(b)
     || (Number(b.viewers) || 0) - (Number(a.viewers) || 0)

@@ -1,21 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { FRONTEND_HTML } from '../src/frontend.js';
-import { fetchPlutoChannels } from '../src/pluto.js';
+import worker from '../src/index.js';
 
-test('Pluto directory never exposes direct HLS playback', async () => {
-  const channels = await fetchPlutoChannels({});
-  assert.ok(channels.length >= 1);
-  for (const ch of channels) {
-    assert.equal(ch.hls_url, undefined);
-    assert.match(ch.external_url, /^https:\/\/pluto\.tv\//);
-  }
+test('Pluto is a static official destination without a Worker endpoint', async () => {
+  const response = await worker.fetch(new Request('https://liva.example/api/pluto'), {}, {});
+  assert.equal(response.status, 404);
+  assert.match(FRONTEND_HTML, /id="pluto-official-link"/);
+  assert.match(FRONTEND_HTML, /href="https:\/\/pluto\.tv\//);
+  assert.doesNotMatch(FRONTEND_HTML, /fetch\(['"]\/api\/pluto/);
   assert.doesNotMatch(FRONTEND_HTML, /new Hls\(|hls\.js/i);
 });
-test('frontend renders untrusted provider labels as text only', () => {
-  assert.match(FRONTEND_HTML, /channelLabel\.textContent = ch\.channel/);
-  assert.doesNotMatch(FRONTEND_HTML, /card\.innerHTML\s*=/);
-  assert.doesNotMatch(FRONTEND_HTML, /\$\{e\.message\}/);
+test('frontend never injects provider-controlled strings as HTML', () => {
+  assert.doesNotMatch(FRONTEND_HTML, /innerHTML\s*=/);
+  assert.doesNotMatch(FRONTEND_HTML, /\x24\x7be\.message\x7d/);
+  assert.match(FRONTEND_HTML, /id="pluto-official-link"/);
 });
 test('player cannot be hidden behind touch shields or inactive autoplay', () => {
   assert.doesNotMatch(FRONTEND_HTML, /bounce-shield|pointer-events:\s*none;\s*}\s*\.iframe-pool/);

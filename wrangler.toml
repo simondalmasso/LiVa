@@ -7,7 +7,7 @@ compatibility_flags = ["nodejs_compat"]
 # https://liva.simondalmasso44.workers.dev
 
 [vars]
-PROJECT_VERSION = "4.2.0-LIVE-ARGENTINA"
+PROJECT_VERSION = "4.2.1-LIVE-ARGENTINA"
 
 # Secrets (set via `wrangler secret put` or API):
 #   YOUTUBE_API_KEY

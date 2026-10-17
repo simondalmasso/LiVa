@@ -1,6 +1,8 @@
-# LiVa — zapping de transmisiones y series
+# LiVa — zapping de transmisiones en vivo
 
-LiVa es un experimento de descubrimiento de transmisiones **en vivo** de YouTube y Twitch con navegación vertical y autoplay silenciado del reproductor visible. Mantiene **tres categorías independientes**: En vivo (YouTube/Twitch con autoplay silenciado), Pluto (salida a su servicio oficial) y Grabados (Shorta, manual y externo).
+**Build objetivo:** 4.2.1-LIVE-ARGENTINA
+
+LiVa es un producto experimental de descubrimiento de transmisiones en vivo de YouTube y Twitch, con zapping vertical y autoplay silenciado del reproductor oficial visible. Mantiene tres categorías independientes: En vivo (catálogo verificado), Pluto (enlace estático al servicio oficial, sin llamada al Worker) y Grabados (Shorta, manual y externo).
 
 **Estado de release:** HOLD mientras se verifican condiciones de proveedores y reproducción audiovisual real. Una URL pública o embebible no equivale a autorización para retransmitir.
 
@@ -49,13 +51,13 @@ La pantalla de LiVa es vertical, pero el reproductor no se recorta para ocultar 
 
 ## Fuentes, presupuesto y caché
 
-- Twitch: una consulta Helix exclusivamente para `martinciriook`, `coscu` y `momo` cuando están emitiendo; valida `user_login` y `type=live` antes de mostrarlos. Token OAuth compartido por isolate, POST form-encoded, renovación singleflight y máximo un reintento ante 401.
-- YouTube: una sola búsqueda `search.list` por ciclo con términos combinados por OR, más una llamada `videos.list` de verificación en lote. **Sólo pasan los videos con `snippet.channelId` incluido en el registro verificado** de OLGA, LUZU TV, BLENDER, TN y Crónica TV, embebibles, públicos y efectivamente activos. Ambas llamadas comparten timeout de 8 s. Caché local por isolate de 60 min y backoff breve ante error. Esta búsqueda ahorra cuota, pero no garantiza encontrar todos los directos en todas las horas.
-- Catálogo común `/api/streams`: clave interna versionada `__liva/catalogue/argentina-verified-v1` para no heredar emisiones extranjeras de cachés anteriores; `caches.default` almacena el resultado compartido durante 60 minutos. `Workers Caching` (`[cache] enabled = true`) puede responder durante 5 minutos antes de ejecutar el Worker. La respuesta pública no contiene geolocalización individual (`Cache-Control: public, max-age=300`).
+- Twitch: una consulta Helix exclusivamente para martinciriook, coscu y momo cuando están emitiendo; valida user_login y type=live antes de mostrarlos. Token OAuth compartido por isolate, POST form-encoded, renovación singleflight y máximo un reintento ante 401. El catálogo compartido se actualiza cada 15 minutos; cada stream incluye verified_at para mostrar la última verificación de la fuente.
+- YouTube: una búsqueda search.list por ciclo con términos OR combinados, más una llamada videos.list de verificación en lote. Sólo pasan los videos cuyo snippet.channelId coincide con el registro verificado de OLGA, LUZU TV, BLENDER, TN y Crónica TV, que son públicos, embebibles y efectivamente activos. Ambas llamadas comparten timeout de 8 segundos. Caché por isolate de 60 minutos para proteger la cuota predeterminada de 100 búsquedas diarias; la marca verified_at permite identificar datos antiguos. Un nuevo directo de YouTube puede tardar hasta una hora en aparecer.
+- Catálogo común /api/streams: clave interna versionada __liva/catalogue/argentina-verified-v1 para no heredar emisiones extranjeras de cachés anteriores; caches.default conserva el catálogo durante 15 minutos. Workers Caching puede responder durante 5 minutos antes de ejecutar el Worker. La respuesta pública no contiene geolocalización individual (Cache-Control: public, max-age=300).
 - El feed admite únicamente YouTube LIVE de **cinco canales con ID identificado** y Twitch LIVE de **tres nombres de usuario curados**. No se incluyen canales extranjeros, coincidencias de nombres no verificadas, videos grabados ni shuffle. Si no encuentra directos verificados, presenta enlaces manuales a los canales oficiales, sin marcarlos como LIVE ni generar llamadas adicionales.
 - Grabados/Shorta: enlace manual declarado públicamente por el editor de Shorta, sin `channels.list` ni `playlistItems.list` y sin llamadas al backend al entrar en la pestaña.
 
-**Sin Workers KV:** esta versión no necesita bindings KV, ni `get` ni `put` de KV. El cliente solicita el feed al iniciar y no repite la consulta en cada swipe. La respuesta se comparte entre usuarios con Workers Caching por 5 min y Cache API regional por 60 min. El reproductor visible utiliza autoplay silenciado (`autoplay=1&mute=1`) sin descargar video por medio del Worker. Al ocultar la pestaña se desmonta el iframe. Esto no garantiza autoplay en todos los navegadores: si es bloqueado, usar los controles del reproductor oficial.
+**Sin Workers KV:** no hay bindings KV ni lecturas/escrituras KV, D1 o Durable Objects. El cliente solicita el feed al iniciar y no repite la consulta en cada swipe. Workers Caching mantiene la respuesta pública durante 5 minutos; Cache API regional conserva el catálogo 15 minutos. La búsqueda de YouTube tiene caché por isolate de 60 minutos para proteger su cuota. El reproductor visible solicita autoplay silenciado y reproduce directamente desde YouTube/Twitch, nunca a través del Worker. Al ocultar la pestaña se desmonta el iframe.
 
 **Límite importante:** la caché `caches.default` de Cloudflare es local a cada datacenter. `Workers Caching` puede reducir ejecuciones del Worker, pero aún no está confirmado en producción y tampoco fija un techo global absoluto para las llamadas a YouTube. Esto reduce duplicaciones pero **no impone un límite mundial de consultas**. La documentación de Google (2026-10-08) señala 100 llamadas diarias predeterminadas a `search.list`, sujetas al proyecto y cambios futuros. Para un despliegue a escala hace falta coordinación global (por ejemplo, ingesta programada y almacenamiento compartido) con coste y permisos evaluados antes de implementarla.
 
@@ -71,7 +73,6 @@ Fuentes:
 
 - `GET /` — interfaz.
 - `GET /api/streams` — catálogo público común, sin datos individuales del visitante.
-- `GET /api/pluto` — directorio a Pluto TV oficial, no URLs HLS.
 - `GET /api/health` — estado básico del Worker.
 
 ## Protección ante errores
@@ -81,7 +82,7 @@ Fuentes:
 - La escritura a caché se espera antes de liberar el bloqueo single-flight del catálogo, evitando solicitudes duplicadas en esa ventana.
 - Si el catálogo es viejo, la interfaz informa su antigüedad y advierte que el directo puede haber terminado.
 - Los estados de catálogo vacío y caída de proveedor muestran retry manual, enlaces a las páginas de los cinco canales de YouTube sin estado LIVE inferido, y eliminan iframes anteriores. Los reintentos consecutivos se agrupan con un guard; la solicitud inicial del feed tiene un timeout de 10 s.
-- Si no hay directos verificados, la entrada de caché dura 5 minutos en lugar de 60; así se recupera antes cuando una fuente vuelve a emitir.
+- El catálogo se conserva 15 minutos tanto si hay directos como si está vacío; esto limita consultas repetidas a Twitch. La búsqueda de YouTube permanece cacheada por isolate hasta 60 minutos para proteger la cuota, por lo que la detección de nuevos directos no es instantánea.
 - Las miniaturas de proveedores permitidos se representan como imágenes `loading=lazy` y `decoding=async`, no como fondos descargados masivamente.
 - Al recargar el catálogo se desconectan los observadores de scroll previos y se restaura el primer canal visible, evitando reproducciones fuera de pantalla.
 - Si el usuario entra a Grabados mientras el feed sigue cargando, la respuesta tardía no puede iniciar video oculto. El feed descarta material grabado aunque venga de una respuesta cacheada antigua.
@@ -109,4 +110,4 @@ GitHub Actions (PR/main) ejecuta test unitario, E2E, build y dry-run con permiso
 4. Certificar el SHA exacto desplegado, proteger `main`, habilitar branch checks y ensayar rollback.
 5. Confirmar titularidad antes de decidir LICENSE. Licencia del código y derechos audiovisuales son diferentes.
 
-**No desplegar sólo por tener tests locales verdes.** Requiere revisión de derechos, validación audiovisual y autorización expresa para producción.
+**Estado de release: HOLD para certificación completa.** Un deploy de parche técnico no equivale a una certificación de derechos ni a una prueba de reproducción audiovisual real.

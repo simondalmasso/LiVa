@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import { FRONTEND_HTML } from '../src/frontend.js';
 import worker from '../src/index.js';
 
-let server, url;
+let server, url, plutoCalls = 0;
 const streams = [
   {source:'youtube',id:'yt_123456789AB',channel:'OLGA',title:'Programa en vivo',is_live:true,embed_url:'https://www.youtube.com/embed/123456789AB?autoplay=1&mute=1'},
   {source:'twitch',id:'tw_1',channel:'martinciriook',title:'Directo',is_live:true,embed_url:'https://player.twitch.tv/?channel=martinciriook&parent=liva.simondalmasso44.workers.dev&muted=true'},
@@ -11,15 +11,13 @@ const streams = [
 ];
 
 test.beforeAll(async () => {
+  plutoCalls = 0;
   const home = await worker.fetch(new Request('https://liva.example/'), {}, {});
   const csp = home.headers.get('content-security-policy');
   server = createServer((req,res) => {
     res.setHeader('Content-Type', req.url.startsWith('/api/') ? 'application/json' : 'text/html; charset=utf-8');
     if(req.url === '/api/streams') return res.end(JSON.stringify({ok:true,streams,generated_at:Date.now()-45*60*1000}));
-    if(req.url === '/api/pluto') return res.end(JSON.stringify({ok:true,channels:[{
-      channel:'<img src=x onerror=alert(1)>',title:'Abrir oficialmente',
-      external_url:'https://pluto.tv/'
-    }]}));
+    if(req.url === '/api/pluto') { plutoCalls++; res.statusCode=404; return res.end('Not Found'); }
     if(req.url === '/') { res.setHeader('Content-Security-Policy', csp); return res.end(FRONTEND_HTML); }
     res.statusCode=404;res.end('Not Found');
   });
@@ -38,10 +36,10 @@ async function launch(width,height) {
     return route.abort();
   });
   await page.goto(url,{waitUntil:'domcontentloaded'});
-  return {browser,page,getFeedCalls:()=>feedCalls};
+  return {browser,page,getFeedCalls:()=>feedCalls,getPlutoCalls:()=>plutoCalls};
 }
-test('mobile 390: active player is single, next Twitch uses legal fallback and Pluto label is escaped',async()=>{
-  const {browser,page}=await launch(390,844);
+test('mobile 390: active player is single, Twitch fallback works and Pluto is static',async()=>{
+  const {browser,page,getPlutoCalls}=await launch(390,844);
   try {
     await expect(page.locator('#stream-channel')).toHaveText('OLGA');
     await page.screenshot({path:'test-results/liva-390.png'});
@@ -61,10 +59,12 @@ test('mobile 390: active player is single, next Twitch uses legal fallback and P
     await page.locator('#tab-pluto').click();
     await expect(page.locator('iframe')).toHaveCount(0);
     await expect(page.locator('#pluto-grid a')).toHaveCount(1);
-    await expect(page.locator('#view-pluto a[href="https://www.youtube.com/@hacela.shorta"]')).toHaveCount(0);
+    await expect(page.locator('#view-pluto a[href*="shorta"]')).toHaveCount(0);
     await expect(page.locator('#pluto-grid a')).toHaveAttribute('href','https://pluto.tv/');
     await expect(page.locator('#pluto-grid img')).toHaveCount(0);
-    await expect(page.locator('#pluto-grid a')).toContainText('<img src=x onerror=alert(1)>');
+    await expect(page.locator('#pluto-grid a')).toContainText('Pluto TV');
+    await expect(page.locator('#pluto-grid a')).toContainText('sitio oficial');
+    expect(getPlutoCalls()).toBe(0);
     await page.locator('#tab-feed').click();
     await expect(page.locator('#stream-channel')).toHaveText('BLENDER');
     await expect(page.locator('#stream-open')).toHaveAttribute('href','https://www.youtube.com/watch?v=ZYX98765432');
@@ -432,5 +432,25 @@ test('when no Argentine lives are verified, manual official publisher links repl
     await expect(page.locator('#official-publishers a').first()).toHaveAttribute('href',/youtube\.com\/\@/);
     await expect(page.locator('iframe')).toHaveCount(0);
     expect(interceptedRequests).toBe(1);
+  }finally{await browser.close();}
+});
+
+
+test('failed feed refresh clears stale streams and cannot restart a hidden player',async()=>{
+  const {browser,page}=await launch(390,844);
+  try{
+    await expect(page.locator('iframe')).toHaveCount(1);
+    await page.route('**/api/streams',route=>route.fulfill({
+      status:503,contentType:'application/json',body:JSON.stringify({ok:false,error:'catalog_unavailable'})
+    }));
+    await page.evaluate(()=>loadFeed());
+    await expect(page.getByText('Error al cargar el feed.')).toBeVisible();
+    await expect(page.locator('iframe')).toHaveCount(0);
+    await page.evaluate(()=>{
+      Object.defineProperty(document,'visibilityState',{configurable:true,get:()=> 'visible'});
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await expect(page.locator('iframe')).toHaveCount(0);
+    await expect(page.locator('#stream-info')).toBeHidden();
   }finally{await browser.close();}
 });

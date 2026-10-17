@@ -20,6 +20,7 @@ test('Twitch uses one app token, form body for credentials, and queries curated 
   assert.equal(requests.filter(r=>r.url.includes('/oauth2/token')).length,1);
   assert.equal(requests.filter(r=>r.url.includes('/helix/streams')).length,1);
   assert.equal(result[0].channel,'martinciriook');
+  assert.ok(Number.isFinite(result[0].verified_at));
   const oauth=requests.find(r=>r.url.includes('/oauth2/token'));
   assert.equal(new URL(oauth.url).search,'');
   assert.equal(new URLSearchParams(oauth.options.body).get('client_secret'),'SECRET');

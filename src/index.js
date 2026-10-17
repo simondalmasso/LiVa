@@ -7,7 +7,6 @@
 import { FRONTEND_HTML } from './frontend.js';
 import { fetchTwitchStreams } from './twitch.js';
 import { fetchYouTubeStreams } from './youtube.js';
-import { fetchPlutoChannels } from './pluto.js';
 import { orderLiveFeed } from './aggregator.js';
 
 const RESPONSE_SECURITY_HEADERS = {
@@ -52,8 +51,6 @@ let twitchTokenCache = { token: null, expiresAt: 0 };
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    const cf = request.cf || {};
-
     // --- Routing ---
     if (url.pathname === '/' || url.pathname === '/index.html') {
       return new Response(FRONTEND_HTML, {
@@ -74,16 +71,17 @@ export default {
       return handleStreams(request, env);
     }
 
-    if (url.pathname === '/api/pluto') {
-      return handlePluto(env);
-    }
-
     if (url.pathname === '/api/health') {
+      if (request.method !== 'GET') {
+        return new Response('Method Not Allowed', {
+          status: 405,
+          headers: { ...RESPONSE_SECURITY_HEADERS, allow: 'GET', 'cache-control': 'no-store' },
+        });
+      }
       return jsonResponse({
         ok: true,
-        version: '4.1.0-RECONSTRUCTION',
+        version: env?.PROJECT_VERSION || 'dev',
         time: new Date().toISOString(),
-        cf: { city: cf.city, regionCode: cf.regionCode, country: cf.country },
       });
     }
 
@@ -110,7 +108,7 @@ async function loadCatalogue(cacheKey, env) {
     const youtube = youtubeResult.status === 'fulfilled' ? youtubeResult.value : [];
     const streams = orderLiveFeed(youtube, twitch);
     const catalogue = { generated_at: Date.now(), streams };
-    const ttl = streams.length ? 3600 : 300;
+    const ttl = 900; // 15 minutes: refresh Twitch without polling on every visit.
     const response = new Response(JSON.stringify(catalogue), {
       headers: { 'content-type': 'application/json;charset=utf-8',
                  'cache-control': `public, max-age=${ttl}, s-maxage=${ttl}` },
@@ -145,20 +143,6 @@ async function handleStreams(request, env) {
     });
   } catch (_) {
     return jsonResponse({ ok: false, error: 'catalog_unavailable' }, 503);
-  }
-}
-
-// ---------------- /api/pluto ----------------
-async function handlePluto(env) {
-  try {
-    const channels = await fetchPlutoChannels(env);
-    return jsonResponse({
-      ok: true,
-      count: channels.length,
-      channels,
-    });
-  } catch (err) {
-    return jsonResponse({ ok: false, error: String(err && err.message || err) }, 500);
   }
 }
 

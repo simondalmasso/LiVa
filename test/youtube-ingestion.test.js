@@ -29,6 +29,7 @@ test('YouTube one discovery query with bulk details, verified LIVE, and coalesci
   assert.equal(details,1);
   assert.equal(one.length,1);
   assert.equal(one[0].channel,'OLGA');
+  assert.ok(Number.isFinite(one[0].verified_at));
   assert.deepEqual(one,two);
 });
 test('YouTube fails cleanly on upstream API errors (no fabricated feeds)', async(t)=>{

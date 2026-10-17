@@ -15,6 +15,15 @@ test('homepage and health responses return minimum security headers', async () =
 
 import { createHash } from 'node:crypto';
 import { FRONTEND_HTML } from '../src/frontend.js';
+test('health reports the deployed build version without echoing request geolocation',async()=>{
+  const request=new Request('https://liva.example/api/health');
+  Object.defineProperty(request,'cf',{value:{city:'Santa Fe',regionCode:'S',country:'AR'}});
+  const res=await worker.fetch(request,{PROJECT_VERSION:'4.2.1-LIVE-ARGENTINA'},{});
+  assert.equal(res.status,200);
+  const data=await res.json();
+  assert.equal(data.version,'4.2.1-LIVE-ARGENTINA');
+  assert.equal(Object.hasOwn(data,'cf'),false);
+});
 test('Content Security Policy pins the exact inline script hash and official embed hosts', async()=>{
   const res=await worker.fetch(new Request('https://liva.example/'),{},{});
   const csp=res.headers.get('content-security-policy') || '';

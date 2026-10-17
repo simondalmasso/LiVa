@@ -60,8 +60,10 @@ export async function fetchYouTubeStreams(env) {
   const pending = (async () => {
     try {
       const streams = await discover(env.YOUTUBE_API_KEY);
-      cached = { streams, expiresAt: Date.now() + DISCOVERY_TTL_MS };
-      return streams;
+      const verifiedAt = Date.now();
+      const verifiedStreams = streams.map(stream => ({ ...stream, verified_at: verifiedAt }));
+      cached = { streams: verifiedStreams, expiresAt: Date.now() + DISCOVERY_TTL_MS };
+      return verifiedStreams;
     } catch (_) {
       // Avoid provider hammering while quota or network is unavailable.
       cached = { streams: [], expiresAt: Date.now() + 120_000 };
