@@ -4,7 +4,7 @@
 
 LiVa es un producto experimental de descubrimiento de transmisiones en vivo de YouTube y Twitch, con zapping vertical y autoplay silenciado del reproductor oficial visible. Mantiene tres categorías independientes: En vivo (catálogo verificado), Pluto (enlace estático al servicio oficial, sin llamada al Worker) y Grabados (Shorta, manual y externo).
 
-**Estado de release:** HOLD mientras se verifican condiciones de proveedores y reproducción audiovisual real. Una URL pública o embebible no equivale a autorización para retransmitir.
+**Estado:** parche técnico 4.2.1 desplegado. La certificación completa sigue en HOLD hasta validar derechos y reproducción audiovisual real. Una URL pública o embebible no equivale a autorización para retransmitir.
 
 ## Stack y desarrollo
 
@@ -110,4 +110,3 @@ GitHub Actions (PR/main) ejecuta test unitario, E2E, build y dry-run con permiso
 4. Certificar el SHA exacto desplegado, proteger `main`, habilitar branch checks y ensayar rollback.
 5. Confirmar titularidad antes de decidir LICENSE. Licencia del código y derechos audiovisuales son diferentes.
 
-**Estado de release: HOLD para certificación completa.** Un deploy de parche técnico no equivale a una certificación de derechos ni a una prueba de reproducción audiovisual real.
